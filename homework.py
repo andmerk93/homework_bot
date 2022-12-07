@@ -1,4 +1,4 @@
-import requests
+import requests, json
 from  datetime import datetime
 from telegram import Bot, ReplyKeyboardMarkup
 from telegram.ext import CommandHandler, Updater
@@ -34,7 +34,11 @@ def send_message(bot, message):
 def get_api_answer(timestamp):
     payload = {'from_date': timestamp}
     api_answer = requests.get(url=ENDPOINT, params=payload, headers=HEADERS)
-    return api_answer.json()
+    try:
+        return api_answer.json()
+    except json.decoder.JSONDecodeError:
+        print('broken JSON returned')
+        return {}
 
 
 def check_response(response):
@@ -52,8 +56,10 @@ def check_response(response):
             type(response['homeworks']) != list
         ):
             print('bad type current_date or homeworks in JSON')
+            return
     except KeyError:
         print('no current_date or homeworks in JSON')
+        return
     for homework in response['homeworks']:
         try:
             for i in homeworks_structure:
