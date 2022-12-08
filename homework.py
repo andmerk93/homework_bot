@@ -1,15 +1,18 @@
-import requests, json
-from  datetime import datetime
+import json
+import os
+import requests
+from datetime import datetime
+from dotenv import load_dotenv
 from telegram import Bot, ReplyKeyboardMarkup
 from telegram.ext import CommandHandler, Updater
-import ids
-
-#load_dotenv()
 
 
-PRACTICUM_TOKEN = ids.PRACTICUM_TOKEN
-TELEGRAM_TOKEN = ids.TELEGRAM_TOKEN
-TELEGRAM_CHAT_ID = ids.TELEGRAM_CHAT_ID
+load_dotenv()
+
+
+PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN1')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
@@ -24,7 +27,12 @@ HOMEWORK_VERDICTS = {
 
 
 def check_tokens():
-    pass
+    if not (
+        PRACTICUM_TOKEN and
+        TELEGRAM_TOKEN and
+        TELEGRAM_CHAT_ID
+    ):
+        raise Exception('problem with tokens')
 
 
 def send_message(bot, message):
@@ -55,8 +63,7 @@ def check_response(response):
             type(response['current_date']) != int and
             type(response['homeworks']) != list
         ):
-            print('bad type current_date or homeworks in JSON')
-            return
+            raise Exception('bad type current_date or homeworks in JSON')
     except KeyError:
         print('no current_date or homeworks in JSON')
         return
@@ -81,9 +88,12 @@ def check_response(response):
 
 
 def parse_status(homework):
-    pass
-
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    try:
+        verdict = HOMEWORK_VERDICTS[homework['status']]
+        homework_name = homework['homework_name']
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    except KeyError:
+        return 'Неправильный статус ДЗ'  # надо самодельное исключение
 
 
 def main():
@@ -111,3 +121,4 @@ if __name__ == '__main__':
 #    main()
     response = get_api_answer(1665226552)
     check_response(response)
+    check_tokens()
