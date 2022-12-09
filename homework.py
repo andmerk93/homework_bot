@@ -1,22 +1,21 @@
-import json
 import os
 import requests
-from datetime import datetime
+import time
 from dotenv import load_dotenv
-from telegram import Bot, ReplyKeyboardMarkup
-from telegram.ext import CommandHandler, Updater
+import telegram
 
 
 load_dotenv()
 
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN1')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
+THREE_DAYS = 259200
 
 
 HOMEWORK_VERDICTS = {
@@ -36,89 +35,74 @@ def check_tokens():
 
 
 def send_message(bot, message):
-    pass
+    bot.send_message(TELEGRAM_CHAT_ID, message)
 
 
 def get_api_answer(timestamp):
     payload = {'from_date': timestamp}
     api_answer = requests.get(url=ENDPOINT, params=payload, headers=HEADERS)
-    try:
-        return api_answer.json()
-    except json.decoder.JSONDecodeError:
-        print('broken JSON returned')
-        return {}
+    if api_answer.status_code != 200:
+        raise Exception('bad answer from API Endpoint')
+    return api_answer.json()
 
 
 def check_response(response):
     homeworks_structure = {
         'id': int,
-        'status': str, # 4 statuses
+        'status': str,  # 4 statuses
         'homework_name': str,
         'reviewer_comment': str,
-        'date_updated': str, # ISO 8601
+        'date_updated': str,  # ISO 8601
         'lesson_name': str,
     }
-    try:
-        if (
-            type(response['current_date']) != int and
-            type(response['homeworks']) != list
-        ):
-            raise Exception('bad type current_date or homeworks in JSON')
-    except KeyError:
-        print('no current_date or homeworks in JSON')
-        return
+    if (
+        'current_date' not in response or
+        'homeworks' not in response or
+        type(response['current_date']) != int or
+        type(response['homeworks']) != list
+    ):
+        raise Exception('bad type current_date or homeworks in JSON')
+    if len(response['homeworks']) == 0:
+        raise Exception('There is no homeworks for this date')
     for homework in response['homeworks']:
-        try:
-            for i in homeworks_structure:
-                if type(homework[i]) != homeworks_structure[i]:
-                    print(f'bad type {homework[i]} in homework {homework}')
-            if homework['status'] not in HOMEWORK_VERDICTS.keys():
-                status = homework['status']
-                print(f'bad status {status} in homework {homework}')
-            try:
-                datetime.strptime(
-                    homework['date_updated'],
-                    '%Y-%m-%dT%H:%M:%SZ'
+        for i in homeworks_structure:
+            if (
+                i not in homework or
+                type(homework[i]) != homeworks_structure[i]
+            ):
+                raise Exception(
+                    f'problems with {i} key in homework {homework}'
                 )
-            except ValueError:
-                date = homework['date_updated']
-                print(f'bad date format {date} in homework {homework}')
-        except KeyError:
-            print(f'there is no {i} in homework {homework}')
 
 
 def parse_status(homework):
-    try:
-        verdict = HOMEWORK_VERDICTS[homework['status']]
-        homework_name = homework['homework_name']
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    except KeyError:
-        return 'Неправильный статус ДЗ'  # надо самодельное исключение
+    if homework['status'] not in HOMEWORK_VERDICTS:
+        status = homework['status']
+        raise Exception(f'bad status {status} in homework {homework}')
+    verdict = HOMEWORK_VERDICTS[homework['status']]
+    homework_name = homework['homework_name']
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
     """Основная логика работы бота."""
-
-    pass
-
+    check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    timestamp = int(time.time())
-
-    print()
-
+    timestamp = int(time.time()) - THREE_DAYS
+    message = ''
     while True:
         try:
-
-            print()
-
+            response = get_api_answer(timestamp - 5184000 // 2)  # del later
+            check_response(response)
+            if message != parse_status(response['homeworks'][0]):
+                message = parse_status(response['homeworks'][0])
+                send_message(bot, message)
+            print(response)  # del later
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            print()
-        print()
+            send_message(bot, message)
+        time.sleep(RETRY_PERIOD/120)  # del later
 
 
 if __name__ == '__main__':
-#    main()
-    response = get_api_answer(1665226552)
-    check_response(response)
-    check_tokens()
+    main()
