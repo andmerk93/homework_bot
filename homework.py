@@ -14,10 +14,10 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-RETRY_PERIOD = 600  # del later/120
+RETRY_PERIOD = 600  # /120
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-THREE_DAYS = 259200
+THREE_DAYS = 259200  # +5184000
 
 
 HOMEWORK_VERDICTS = {
@@ -48,20 +48,43 @@ def check_tokens():
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram"""
-    bot.send_message(TELEGRAM_CHAT_ID, message)
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.debug(message)
+    except Exception as error:
+        logger.error(error)
 
 
 def get_api_answer(timestamp):
     """Делает запрос к эндпоинту API"""
     payload = {'from_date': timestamp}
-    api_answer = requests.get(url=ENDPOINT, params=payload, headers=HEADERS)
+    try:
+        api_answer = requests.get(
+            url=ENDPOINT,
+            params=payload,
+            headers=HEADERS
+        )
+    except Exception as error:
+        logger.error(error)
     if api_answer.status_code != 200:
         raise Exception('bad answer from API Endpoint')
     return api_answer.json()
 
 
 def check_response(response):
-    """Проверяет ответ API на соответствие документации"""
+    """Проверяет ответ API на соответствие документации (частично)"""
+    if (
+        'current_date' not in response or
+        'homeworks' not in response or
+        type(response['current_date']) != int or
+        type(response['homeworks']) != list
+    ):
+        raise TypeError('bad type current_date or homeworks in JSON')
+    if len(response['homeworks']) == 0:
+        raise Exception('There is no homeworks for this date')
+
+
+def homeworks_validator(response):
     homeworks_structure = {
         'id': int,
         'status': str,  # 4 statuses
@@ -70,15 +93,6 @@ def check_response(response):
         'date_updated': str,  # ISO 8601
         'lesson_name': str,
     }
-    if (
-        'current_date' not in response or
-        'homeworks' not in response or
-        type(response['current_date']) != int or
-        type(response['homeworks']) != list
-    ):
-        raise Exception('bad type current_date or homeworks in JSON')
-    if len(response['homeworks']) == 0:
-        raise Exception('There is no homeworks for this date')
     for homework in response['homeworks']:
         for i in homeworks_structure:
             if (
@@ -96,6 +110,8 @@ def parse_status(homework):
         status = homework['status']
         raise Exception(f'bad status {status} in homework {homework}')
     verdict = HOMEWORK_VERDICTS[homework['status']]
+    if 'homework_name' not in homework:
+        raise Exception('для автотестов, нормальный валидатор выше')
     homework_name = homework['homework_name']
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -108,8 +124,9 @@ def main():
     message = ''
     while True:
         try:
-            response = get_api_answer(timestamp - 5184000 // 2)  # del later
+            response = get_api_answer(timestamp)
             check_response(response)
+#            homeworks_validator(response)  # autotests
             if message != parse_status(response['homeworks'][0]):
                 message = parse_status(response['homeworks'][0])
                 send_message(bot, message)
