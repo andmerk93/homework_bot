@@ -36,9 +36,7 @@ logger.addHandler(handler)
 
 
 def check_tokens():
-    """
-    Проверяет доступность переменных окружения
-    """
+    """Проверяет доступность переменных окружения."""
     if not (
         PRACTICUM_TOKEN
         and TELEGRAM_TOKEN
@@ -49,9 +47,7 @@ def check_tokens():
 
 
 def send_message(bot, message):
-    """
-    Отправляет сообщение в Telegram
-    """
+    """Отправляет сообщение в Telegram."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug(message)
@@ -60,9 +56,7 @@ def send_message(bot, message):
 
 
 def get_api_answer(timestamp):
-    """
-    Делает запрос к эндпоинту API
-    """
+    """Делает запрос к эндпоинту API."""
     payload = {'from_date': timestamp}
     try:
         api_answer = requests.get(
@@ -78,9 +72,7 @@ def get_api_answer(timestamp):
 
 
 def check_response(response):
-    """
-    Проверяет ответ API на соответствие документации (частично)
-    """
+    """Проверяет ответ API на соответствие документации (частично)."""
     if (
         'current_date' not in response
         or 'homeworks' not in response
@@ -95,7 +87,7 @@ def check_response(response):
 def homeworks_validator(response):
     """
     Нормальный валидатор домашек.
-    Перенёс отдельно из-за автотестов. 
+    Перенёс отдельно из-за автотестов.
     """
     homeworks_structure = {
         'id': int,
@@ -117,9 +109,7 @@ def homeworks_validator(response):
 
 
 def parse_status(homework):
-    """
-    Извлекает работе статус домашней работы
-    """
+    """Извлекает работе статус домашней работы."""
     if homework['status'] not in HOMEWORK_VERDICTS:
         status = homework['status']
         raise Exception(f'bad status {status} in homework {homework}')
@@ -131,9 +121,7 @@ def parse_status(homework):
 
 
 def main():
-    """
-    Основная логика работы бота.
-    """
+    """Основная логика работы бота."""
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time()) - THREE_DAYS
