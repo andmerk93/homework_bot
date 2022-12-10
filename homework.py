@@ -1,3 +1,5 @@
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 import requests
 import time
@@ -12,7 +14,7 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-RETRY_PERIOD = 600
+RETRY_PERIOD = 600  # del later/120
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 THREE_DAYS = 259200
@@ -25,20 +27,32 @@ HOMEWORK_VERDICTS = {
 }
 
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+handler = RotatingFileHandler('homework.log', maxBytes=50000000, backupCount=5)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+
 def check_tokens():
+    """Проверяет доступность переменных окружения"""
     if not (
         PRACTICUM_TOKEN and
         TELEGRAM_TOKEN and
         TELEGRAM_CHAT_ID
     ):
+        logger.critical('problem with tokens')
         raise Exception('problem with tokens')
 
 
 def send_message(bot, message):
+    """Отправляет сообщение в Telegram"""
     bot.send_message(TELEGRAM_CHAT_ID, message)
 
 
 def get_api_answer(timestamp):
+    """Делает запрос к эндпоинту API"""
     payload = {'from_date': timestamp}
     api_answer = requests.get(url=ENDPOINT, params=payload, headers=HEADERS)
     if api_answer.status_code != 200:
@@ -47,6 +61,7 @@ def get_api_answer(timestamp):
 
 
 def check_response(response):
+    """Проверяет ответ API на соответствие документации"""
     homeworks_structure = {
         'id': int,
         'status': str,  # 4 statuses
@@ -76,6 +91,7 @@ def check_response(response):
 
 
 def parse_status(homework):
+    """Извлекает работе статус домашней работы"""
     if homework['status'] not in HOMEWORK_VERDICTS:
         status = homework['status']
         raise Exception(f'bad status {status} in homework {homework}')
@@ -97,11 +113,12 @@ def main():
             if message != parse_status(response['homeworks'][0]):
                 message = parse_status(response['homeworks'][0])
                 send_message(bot, message)
-            print(response)  # del later
+            logger.debug(response)
         except Exception as error:
+            logger.error(error, exc_info=True)
             message = f'Сбой в работе программы: {error}'
             send_message(bot, message)
-        time.sleep(RETRY_PERIOD/120)  # del later
+        time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
