@@ -1,9 +1,10 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-import requests
 import time
+
 from dotenv import load_dotenv
+import requests
 import telegram
 
 
@@ -14,10 +15,9 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-RETRY_PERIOD = 600  # /120
+RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-THREE_DAYS = 259200  # +5184000
 
 
 HOMEWORK_VERDICTS = {
@@ -25,11 +25,30 @@ HOMEWORK_VERDICTS = {
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
-
+HOMEWORK_STATUS = 'Изменился статус проверки работы "{0}". {1}'
+TOKENS_PROBLEM = 'Problem with token {0}'
+API_GENERAL_ERROR_LOG = (
+    'Some troubles with url={0}; params={1}; headers={2}; caused error {3}'
+        )
+API_STATUS_CODE_ERROR_LOG = (
+    'Bad answer from API Endpoint. Some troubles with '
+    'url={0}; params={1}; headers={2}; caused status code {3}'
+)
+WRONG_TYPE_OF_RESPONSE = 'Got wrong type of response'
+RESPONSE_STRUCTURE_NOHOMEWORKS = (
+    'Got error with response structure, no homeworks'
+)
+ERROR_IN_HOMEWORKS_JSON = 'Got error with homeworks structure'
+WRONG_STATUS_IN_PARSED_HOMEWORK = 'Bad status {0} in homework {1}'
+WRONG_NAME_IN_PARSED_HOMEWORK = 'Problems with homework_name in homework {0}'
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-handler = RotatingFileHandler('homework.log', maxBytes=50000000, backupCount=5)
+handler = RotatingFileHandler(
+    __file__ + '.log',
+    maxBytes=50000000,
+    backupCount=5
+)
 formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -37,22 +56,26 @@ logger.addHandler(handler)
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    if not (
-        PRACTICUM_TOKEN
-        and TELEGRAM_TOKEN
-        and TELEGRAM_CHAT_ID
-    ):
-        logger.critical('problem with tokens')
-        raise Exception('problem with tokens')
+    tokens = {
+        PRACTICUM_TOKEN: 'PRACTICUM_TOKEN',
+        TELEGRAM_TOKEN: 'TELEGRAM_TOKEN',
+        TELEGRAM_CHAT_ID: 'TELEGRAM_CHAT_ID'
+    }
+    for token in tokens:
+        if not token:
+            text = TOKENS_PROBLEM.format(tokens[token])
+            logger.critical(text)
+            raise NameError(text)
 
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(message)
+        logger.debug('sent to user: ' + message)
     except Exception as error:
-        logger.error(error)
+        logger.exception(error)
+        logger.error('problems with ' + message)
 
 
 def get_api_answer(timestamp):
@@ -64,80 +87,67 @@ def get_api_answer(timestamp):
             params=payload,
             headers=HEADERS
         )
-    except Exception as error:
-        logger.error(error)
+    except RequestException as error:
+        text = API_GENERAL_ERROR_LOG.format(
+            ENDPOINT,
+            payload,
+            HEADERS,
+            error
+        )
+        raise RequestException(text)
     if api_answer.status_code != 200:
-        raise Exception('bad answer from API Endpoint')
+        text = API_STATUS_CODE_ERROR_LOG.format(
+            ENDPOINT,
+            payload,
+            HEADERS,
+            api_answer.status_code
+        )
+        raise HTTPError(text)
     return api_answer.json()
 
 
 def check_response(response):
-    """Проверяет ответ API на соответствие документации (частично)."""
-    if (
-        'current_date' not in response
-        or 'homeworks' not in response
-        or type(response['current_date']) != int
-        or type(response['homeworks']) != list
-    ):
-        raise TypeError('bad type current_date or homeworks in JSON')
-    if len(response['homeworks']) == 0:
-        raise Exception('There is no homeworks for this date')
-
-
-def homeworks_validator(response):
-    """
-    Нормальный валидатор домашек.
-    Перенёс отдельно из-за автотестов.
-    """
-    homeworks_structure = {
-        'id': int,
-        'status': str,  # 4 statuses
-        'homework_name': str,
-        'reviewer_comment': str,
-        'date_updated': str,  # ISO 8601
-        'lesson_name': str,
-    }
-    for homework in response['homeworks']:
-        for i in homeworks_structure:
-            if (
-                i not in homework
-                or type(homework[i]) != homeworks_structure[i]
-            ):
-                raise Exception(
-                    f'problems with {i} key in homework {homework}'
-                )
+    """Проверяет ответ API на соответствие документации."""
+    if type(response) != dict:
+        raise TypeError(WRONG_TYPE_OF_RESPONSE)
+    if 'homeworks' not in response:
+        raise KeyError(RESPONSE_STRUCTURE_NOHOMEWORKS)
+    if type(response['homeworks']) != list:
+        raise TypeError(ERROR_IN_HOMEWORKS_JSON)
 
 
 def parse_status(homework):
     """Извлекает работе статус домашней работы."""
-    if homework['status'] not in HOMEWORK_VERDICTS:
-        status = homework['status']
-        raise Exception(f'bad status {status} in homework {homework}')
-    verdict = HOMEWORK_VERDICTS[homework['status']]
+    status = homework['status']
+    if status not in HOMEWORK_VERDICTS:
+        raise KeyError(
+            WRONG_STATUS_IN_PARSED_HOMEWORK.format(status, homework)
+        )
+    verdict = HOMEWORK_VERDICTS[status]
     if 'homework_name' not in homework:
-        raise Exception('для автотестов, нормальный валидатор выше')
+        raise KeyError(WRONG_NAME_IN_PARSED_HOMEWORK.format(homework))
     homework_name = homework['homework_name']
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    return HOMEWORK_STATUS.format(homework_name, verdict)
 
 
 def main():
     """Основная логика работы бота."""
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    timestamp = int(time.time()) - THREE_DAYS
-    message = ''
+    timestamp = int(time.time())
+    sent_message = ''
     while True:
         try:
             response = get_api_answer(timestamp)
-            check_response(response)
-#            homeworks_validator(response)  # autotests
-            if message != parse_status(response['homeworks'][0]):
-                message = parse_status(response['homeworks'][0])
-                send_message(bot, message)
             logger.debug(response)
+            check_response(response)
+            message = parse_status(response['homeworks'][0])
+            if sent_message != message:
+                send_message(bot, message)
+                sent_message = message
         except Exception as error:
-            logger.error(error, exc_info=True)
-            message = f'Сбой в работе программы: {error}'
+            logger.exception(error)
+            message = f'{error}'
             send_message(bot, message)
         time.sleep(RETRY_PERIOD)
 
