@@ -4,6 +4,8 @@ import os
 import time
 
 from dotenv import load_dotenv
+# from requests import RequestException #for homework_tests
+# from requests import HTTPError #for homework_tests
 import requests
 import telegram
 
@@ -35,10 +37,11 @@ API_STATUS_CODE_ERROR_LOG = (
     'url={0}; params={1}; headers={2}; caused status code {3}'
 )
 WRONG_TYPE_OF_RESPONSE = 'Got wrong type of response'
-RESPONSE_STRUCTURE_NOHOMEWORKS = (
+RESPONSE_STRUCTURE_NO_HOMEWORKS = (
     'Got error with response structure, no homeworks'
 )
 ERROR_IN_HOMEWORKS_JSON = 'Got error with homeworks structure'
+NO_HOMEWORKS_IN_RESPONSE = 'Didnt get any homeworks'
 WRONG_STATUS_IN_PARSED_HOMEWORK = 'Bad status {0} in homework {1}'
 WRONG_NAME_IN_PARSED_HOMEWORK = 'Problems with homework_name in homework {0}'
 
@@ -111,9 +114,11 @@ def check_response(response):
     if type(response) != dict:
         raise TypeError(WRONG_TYPE_OF_RESPONSE)
     if 'homeworks' not in response:
-        raise KeyError(RESPONSE_STRUCTURE_NOHOMEWORKS)
+        raise KeyError(RESPONSE_STRUCTURE_NO_HOMEWORKS)
     if type(response['homeworks']) != list:
         raise TypeError(ERROR_IN_HOMEWORKS_JSON)
+    if len(response['homeworks']) == 0:
+        raise IndexError(NO_HOMEWORKS_IN_RESPONSE)
 
 
 def parse_status(homework):
