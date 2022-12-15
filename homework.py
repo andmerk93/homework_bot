@@ -4,8 +4,8 @@ import os
 import time
 
 from dotenv import load_dotenv
-# from requests import RequestException #for homework_tests
-# from requests import HTTPError #for homework_tests
+from requests import RequestException #for homework_tests
+from requests import HTTPError #for homework_tests
 import requests
 import telegram
 
@@ -31,7 +31,7 @@ HOMEWORK_STATUS = 'Изменился статус проверки работы
 TOKENS_PROBLEM = 'Problem with token {0}'
 API_GENERAL_ERROR_LOG = (
     'Some troubles with url={0}; params={1}; headers={2}; caused error {3}'
-        )
+)
 API_STATUS_CODE_ERROR_LOG = (
     'Bad answer from API Endpoint. Some troubles with '
     'url={0}; params={1}; headers={2}; caused status code {3}'
