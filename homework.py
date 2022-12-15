@@ -4,8 +4,6 @@ import os
 import time
 
 from dotenv import load_dotenv
-from requests import RequestException
-from requests import HTTPError
 import requests
 import telegram
 
@@ -90,14 +88,14 @@ def get_api_answer(timestamp):
             params=payload,
             headers=HEADERS
         )
-    except RequestException as error:
+    except requests.RequestException as error:
         text = API_GENERAL_ERROR_LOG.format(
             ENDPOINT,
             payload,
             HEADERS,
             error
         )
-        raise RequestException(text)
+        raise Exception(text)  # иначе не проходят тесты
     if api_answer.status_code != 200:
         text = API_STATUS_CODE_ERROR_LOG.format(
             ENDPOINT,
@@ -105,7 +103,7 @@ def get_api_answer(timestamp):
             HEADERS,
             api_answer.status_code
         )
-        raise HTTPError(text)
+        raise requests.HTTPError(text)
     return api_answer.json()
 
 

@@ -1,4 +1,3 @@
-#from requests import RequestException, HTTPError
 from unittest import TestCase, mock, main as uni_main
 from homework import *
 
