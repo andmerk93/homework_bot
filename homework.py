@@ -4,8 +4,8 @@ import os
 import time
 
 from dotenv import load_dotenv
-from requests import RequestException #for homework_tests
-from requests import HTTPError #for homework_tests
+from requests import RequestException
+from requests import HTTPError
 import requests
 import telegram
 
