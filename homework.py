@@ -81,11 +81,11 @@ def check_tokens():
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
     try:
-        bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(SENT_TO_USER.format(message))
-    except Exception as error:
-        logger.exception(error)
-        logger.error(PROBLEMS_WITH.format(message))
+        sent = bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.debug(SENT_TO_USER.format(sent))
+        return sent
+    except Exception:
+        logger.exception(PROBLEMS_WITH.format(message))
 
 
 def get_api_answer(timestamp):
@@ -165,8 +165,7 @@ def main():
             else:
                 message = NO_HOMEWORKS_IN_RESPONSE
             if sent_message != message:
-                send_message(bot, message)
-                sent_message = message
+                sent_message = send_message(bot, message)
         except Exception as error:
             message = MESSAGE_FOR_LAST_EXCEPTION.format(error)
             logger.exception(message)
