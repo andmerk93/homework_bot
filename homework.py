@@ -15,6 +15,12 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
+TOKENS_NAMES = [
+    'PRACTICUM_TOKEN',
+    'TELEGRAM_TOKEN',
+    'TELEGRAM_CHAT_ID',
+]
+
 RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
@@ -26,7 +32,9 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 HOMEWORK_STATUS = 'Изменился статус проверки работы "{0}". {1}'
-TOKENS_PROBLEM = 'Problem with token {0}'
+TOKENS_PROBLEM = 'Problems with tokens: {0}'
+SENT_TO_USER = 'Sent to user: {0}'
+PROBLEMS_WITH = 'Problems with {0}'
 API_GENERAL_ERROR_LOG = (
     'Some troubles with url={0}; params={1}; headers={2}; caused error {3}'
 )
@@ -34,14 +42,17 @@ API_STATUS_CODE_ERROR_LOG = (
     'Bad answer from API Endpoint. Some troubles with '
     'url={0}; params={1}; headers={2}; caused status code {3}'
 )
-WRONG_TYPE_OF_RESPONSE = 'Got wrong type of response'
+ERROR_IN_JSON = 'Got error in JSON: {0}'
+ERROR_IN_JSON_WOTH_CODE = 'Got error in JSON with code: {0}'
+WRONG_TYPE_OF_RESPONSE = 'Got wrong type of response: {0}'
 RESPONSE_STRUCTURE_NO_HOMEWORKS = (
     'Got error with response structure, no homeworks'
 )
-ERROR_IN_HOMEWORKS_JSON = 'Got error with homeworks structure'
+TYPE_ERROR_IN_HOMEWORKS_JSON = 'Got {0} homeworks instead of list'
 NO_HOMEWORKS_IN_RESPONSE = 'Didnt get any homeworks'
 WRONG_STATUS_IN_PARSED_HOMEWORK = 'Bad status {0} in homework {1}'
 WRONG_NAME_IN_PARSED_HOMEWORK = 'Problems with homework_name in homework {0}'
+MESSAGE_FOR_LAST_EXCEPTION = 'Got error while running: {0}'
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -57,26 +68,24 @@ logger.addHandler(handler)
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    tokens = {
-        PRACTICUM_TOKEN: 'PRACTICUM_TOKEN',
-        TELEGRAM_TOKEN: 'TELEGRAM_TOKEN',
-        TELEGRAM_CHAT_ID: 'TELEGRAM_CHAT_ID'
-    }
-    for token in tokens:
-        if not token:
-            text = TOKENS_PROBLEM.format(tokens[token])
-            logger.critical(text)
-            raise NameError(text)
+    problems = ''
+    for name in TOKENS_NAMES:
+        if not globals()[name]:
+            problems += (name + ', ')
+    if problems:
+        text = TOKENS_PROBLEM.format(problems)[:-2]
+        logger.critical(text)
+        raise NameError(text)
 
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug('sent to user: ' + message)
+        logger.debug(SENT_TO_USER.format(message))
     except Exception as error:
         logger.exception(error)
-        logger.error('problems with ' + message)
+        logger.error(PROBLEMS_WITH.format(message))
 
 
 def get_api_answer(timestamp):
@@ -89,41 +98,48 @@ def get_api_answer(timestamp):
             headers=HEADERS
         )
     except requests.RequestException as error:
-        text = API_GENERAL_ERROR_LOG.format(
-            ENDPOINT,
-            payload,
-            HEADERS,
-            error
+        raise OSError(
+            API_GENERAL_ERROR_LOG.format(
+                ENDPOINT,
+                payload,
+                HEADERS,
+                error
+            )
         )
-        raise Exception(text)  # иначе не проходят тесты
     if api_answer.status_code != 200:
-        text = API_STATUS_CODE_ERROR_LOG.format(
-            ENDPOINT,
-            payload,
-            HEADERS,
-            api_answer.status_code
+        raise OSError(
+            API_STATUS_CODE_ERROR_LOG.format(
+                ENDPOINT,
+                payload,
+                HEADERS,
+                api_answer.status_code
+            )
         )
-        raise requests.HTTPError(text)
-    return api_answer.json()
+    json = api_answer.json()
+    if 'error' in json:
+        raise OSError(ERROR_IN_JSON.format(json['error']))
+    if 'code' in json:
+        raise OSError(ERROR_IN_JSON_WOTH_CODE.format(json['code']))
+    return json
 
 
 def check_response(response):
     """Проверяет ответ API на соответствие документации."""
-    if type(response) != dict:
-        raise TypeError(WRONG_TYPE_OF_RESPONSE)
+    def test_instance(var, typ, message):
+        type_var = type(var)
+        if not (isinstance(type_var, typ) or issubclass(type_var, typ)):
+            raise TypeError(message.format(type_var))
+    test_instance(response, dict, WRONG_TYPE_OF_RESPONSE)
     if 'homeworks' not in response:
         raise KeyError(RESPONSE_STRUCTURE_NO_HOMEWORKS)
-    if type(response['homeworks']) != list:
-        raise TypeError(ERROR_IN_HOMEWORKS_JSON)
-    if len(response['homeworks']) == 0:
-        raise IndexError(NO_HOMEWORKS_IN_RESPONSE)
+    test_instance(response['homeworks'], list, TYPE_ERROR_IN_HOMEWORKS_JSON)
 
 
 def parse_status(homework):
     """Извлекает работе статус домашней работы."""
     status = homework['status']
     if status not in HOMEWORK_VERDICTS:
-        raise KeyError(
+        raise ValueError(
             WRONG_STATUS_IN_PARSED_HOMEWORK.format(status, homework)
         )
     verdict = HOMEWORK_VERDICTS[status]
@@ -144,13 +160,16 @@ def main():
             response = get_api_answer(timestamp)
             logger.debug(response)
             check_response(response)
-            message = parse_status(response['homeworks'][0])
+            if len(response['homeworks']) != 0:
+                message = parse_status(response['homeworks'][0])
+            else:
+                message = NO_HOMEWORKS_IN_RESPONSE
             if sent_message != message:
                 send_message(bot, message)
                 sent_message = message
         except Exception as error:
-            logger.exception(error)
-            message = f'{error}'
+            message = MESSAGE_FOR_LAST_EXCEPTION.format(error)
+            logger.exception(message)
             send_message(bot, message)
         time.sleep(RETRY_PERIOD)
 
