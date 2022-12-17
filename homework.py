@@ -43,14 +43,12 @@ API_STATUS_CODE_ERROR_LOG = (
     'url={0}; params={1}; headers={2}; caused status code {3}'
 )
 ERROR_IN_JSON = 'Got error in JSON: {0}'
-ERROR_IN_JSON_WOTH_CODE = 'Got error in JSON with code: {0}'
 WRONG_TYPE_OF_RESPONSE = 'Got wrong type of response: {0}'
 RESPONSE_STRUCTURE_NO_HOMEWORKS = (
     'Got error with response structure, no homeworks'
 )
 TYPE_ERROR_IN_HOMEWORKS_JSON = 'Got {0} homeworks instead of list'
-NO_HOMEWORKS_IN_RESPONSE = 'Didnt get any homeworks'
-WRONG_STATUS_IN_PARSED_HOMEWORK = 'Bad status {0} in homework {1}'
+WRONG_STATUS_IN_PARSED_HOMEWORK = 'Bad status {0} in paresd homework'
 WRONG_NAME_IN_PARSED_HOMEWORK = 'Problems with homework_name in homework {0}'
 MESSAGE_FOR_LAST_EXCEPTION = 'Got error while running: {0}'
 
@@ -68,12 +66,9 @@ logger.addHandler(handler)
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    problems = ''
-    for name in TOKENS_NAMES:
-        if not globals()[name]:
-            problems += (name + ', ')
+    problems = [name for name in TOKENS_NAMES if not globals()[name]]
     if problems:
-        text = TOKENS_PROBLEM.format(problems)[:-2]
+        text = TOKENS_PROBLEM.format(problems)
         logger.critical(text)
         raise NameError(text)
 
@@ -81,45 +76,42 @@ def check_tokens():
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
     try:
-        sent = bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(SENT_TO_USER.format(sent))
-        return sent
+        message = bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.debug(SENT_TO_USER.format(message))
+        return message
     except Exception:
         logger.exception(PROBLEMS_WITH.format(message))
+        return ''
 
 
 def get_api_answer(timestamp):
     """Делает запрос к эндпоинту API."""
     payload = {'from_date': timestamp}
-    try:
-        api_answer = requests.get(
+    params = dict(
             url=ENDPOINT,
             params=payload,
             headers=HEADERS
-        )
+    )
+    try:
+        api_answer = requests.get(**params)
     except requests.RequestException as error:
         raise OSError(
             API_GENERAL_ERROR_LOG.format(
-                ENDPOINT,
-                payload,
-                HEADERS,
+                *params.values(),
                 error
             )
         )
     if api_answer.status_code != 200:
-        raise OSError(
+        raise ConnectionError(
             API_STATUS_CODE_ERROR_LOG.format(
-                ENDPOINT,
-                payload,
-                HEADERS,
+                *params.values(),
                 api_answer.status_code
             )
         )
     json = api_answer.json()
-    if 'error' in json:
-        raise OSError(ERROR_IN_JSON.format(json['error']))
-    if 'code' in json:
-        raise OSError(ERROR_IN_JSON_WOTH_CODE.format(json['code']))
+    for key in ['error', 'code']:
+        if key in json:
+            raise ValueError(ERROR_IN_JSON.format(f'{key}: {json[key]}'))    
     return json
 
 
@@ -140,13 +132,14 @@ def parse_status(homework):
     status = homework['status']
     if status not in HOMEWORK_VERDICTS:
         raise ValueError(
-            WRONG_STATUS_IN_PARSED_HOMEWORK.format(status, homework)
+            WRONG_STATUS_IN_PARSED_HOMEWORK.format(status)
         )
-    verdict = HOMEWORK_VERDICTS[status]
     if 'homework_name' not in homework:
         raise KeyError(WRONG_NAME_IN_PARSED_HOMEWORK.format(homework))
-    homework_name = homework['homework_name']
-    return HOMEWORK_STATUS.format(homework_name, verdict)
+    return HOMEWORK_STATUS.format(
+        homework['homework_name'],
+        HOMEWORK_VERDICTS[status]
+    )
 
 
 def main():
@@ -160,10 +153,10 @@ def main():
             response = get_api_answer(timestamp)
             logger.debug(response)
             check_response(response)
-            if len(response['homeworks']) != 0:
+            if response['homeworks']:
                 message = parse_status(response['homeworks'][0])
             else:
-                message = NO_HOMEWORKS_IN_RESPONSE
+                message = ''
             if sent_message != message:
                 sent_message = send_message(bot, message)
         except Exception as error:
