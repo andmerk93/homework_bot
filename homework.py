@@ -88,9 +88,9 @@ def get_api_answer(timestamp):
     """Делает запрос к эндпоинту API."""
     payload = {'from_date': timestamp}
     params = dict(
-            url=ENDPOINT,
-            params=payload,
-            headers=HEADERS
+        url=ENDPOINT,
+        params=payload,
+        headers=HEADERS
     )
     try:
         api_answer = requests.get(**params)
@@ -111,7 +111,7 @@ def get_api_answer(timestamp):
     json = api_answer.json()
     for key in ['error', 'code']:
         if key in json:
-            raise ValueError(ERROR_IN_JSON.format(f'{key}: {json[key]}'))    
+            raise ValueError(ERROR_IN_JSON.format(f'{key}: {json[key]}'))
     return json
 
 
