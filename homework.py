@@ -36,13 +36,17 @@ TOKENS_PROBLEM = 'Problems with tokens: {0}'
 SENT_TO_USER = 'Sent to user: {0}'
 PROBLEMS_WITH = 'Problems with {0}'
 API_GENERAL_ERROR_LOG = (
-    'Some troubles with url={0}; params={1}; headers={2}; caused error {3}'
+    'Some troubles with url={url}; params={params}; ',
+    'headers={headers}; caused error {error}'
 )
 API_STATUS_CODE_ERROR_LOG = (
     'Bad answer from API Endpoint. Some troubles with '
-    'url={0}; params={1}; headers={2}; caused status code {3}'
+    'url={url}; params={params}; headers={header}; caused status code {code}'
 )
-ERROR_IN_JSON = 'Got error in JSON: {0}'
+ERROR_IN_JSON = (
+    'Got error in JSON: {key}: {value}. ',
+    'Requested url={url}; params={params}; headers={header};'
+)
 WRONG_TYPE_OF_RESPONSE = 'Got wrong type of response: {0}'
 RESPONSE_STRUCTURE_NO_HOMEWORKS = (
     'Got error with response structure, no homeworks'
@@ -62,6 +66,10 @@ handler = RotatingFileHandler(
 formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+
+class APIEndpointError(Exception):
+    """Bad answer from API Endpoint."""
 
 
 def check_tokens():
@@ -86,32 +94,37 @@ def send_message(bot, message):
 
 def get_api_answer(timestamp):
     """Делает запрос к эндпоинту API."""
-    payload = {'from_date': timestamp}
     params = dict(
         url=ENDPOINT,
-        params=payload,
+        params={'from_date': timestamp},
         headers=HEADERS
     )
     try:
         api_answer = requests.get(**params)
     except requests.RequestException as error:
-        raise OSError(
+        raise ConnectionError(
             API_GENERAL_ERROR_LOG.format(
-                *params.values(),
-                error
+                **params,
+                error=error
             )
         )
     if api_answer.status_code != 200:
-        raise ConnectionError(
+        raise APIEndpointError(
             API_STATUS_CODE_ERROR_LOG.format(
-                *params.values(),
-                api_answer.status_code
+                **params,
+                code=api_answer.status_code
             )
         )
     json = api_answer.json()
     for key in ['error', 'code']:
         if key in json:
-            raise ValueError(ERROR_IN_JSON.format(f'{key}: {json[key]}'))
+            raise ValueError(
+                ERROR_IN_JSON.format(
+                    key=key,
+                    value=json[key],
+                    **params,
+                )
+            )
     return json
 
 
@@ -155,10 +168,8 @@ def main():
             check_response(response)
             if response['homeworks']:
                 message = parse_status(response['homeworks'][0])
-            else:
-                message = ''
-            if sent_message != message:
-                sent_message = send_message(bot, message)
+                if sent_message != message:
+                    sent_message = send_message(bot, message)
         except Exception as error:
             message = MESSAGE_FOR_LAST_EXCEPTION.format(error)
             logger.exception(message)
